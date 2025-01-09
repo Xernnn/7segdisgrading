@@ -1,0 +1,6 @@
+cropped_images/
+debug_predictions/
+img/
+__pycache__/
+train/
+image_cutter.py
