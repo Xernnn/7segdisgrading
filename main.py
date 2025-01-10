@@ -154,20 +154,34 @@ def process_image(image_path):
             
             # Check if answer is correct
             correct_answer = correct_answers.get(question_num, "")
-            if not correct_answer:  # No answer in results.json
-                color = (255, 0, 0)  # Blue for no answer found
-            elif result == correct_answer:
-                color = (0, 255, 0)  # Green for correct
-            else:
-                color = (0, 0, 255)  # Red for wrong
-                
-            # Draw colored rectangle
-            cv2.rectangle(debug_img, (x, y), (x+w, y+h), color, 2)
             
-            # Add correct answer above the rectangle (only if answer exists)
-            if correct_answer:
-                cv2.putText(debug_img, f"{correct_answer}", (x+70, y-7), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)  # Black text
+            # Only draw answer text if it exists in results.json and is not empty
+            if correct_answer and question_num in correct_answers:
+                # Draw black border for text
+                for dx, dy in [(-1,0), (1,0), (0,-1), (0,1)]:
+                    cv2.putText(debug_img, f"{correct_answer}", 
+                              (x+70+dx, y-7+dy),
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+                
+                # Draw colored text
+                if result == correct_answer:
+                    text_color = (0, 255, 0)  # Green for correct
+                else:
+                    text_color = (0, 0, 255)  # Red for wrong
+                    
+                cv2.putText(debug_img, f"{correct_answer}", 
+                          (x+70, y-7),
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 2)
+            
+            # Only draw rectangle if answer exists and is not "00000"
+            if correct_answer and correct_answer != "00000":
+                if result == correct_answer:
+                    color = (0, 255, 0)  # Green for correct
+                else:
+                    color = (0, 0, 255)  # Red for wrong
+                    
+                # Draw colored rectangle
+                cv2.rectangle(debug_img, (x, y), (x+w, y+h), color, 2)
             
         else:
             print(f"Skipping cut {question_num} - no digits detected")

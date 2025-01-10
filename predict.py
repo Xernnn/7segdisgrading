@@ -27,6 +27,60 @@ def predict_digit(model, image_path, device):
         
     return predicted.item()
 
+def clean_prediction(result):
+    """Clean up prediction based on rules:
+    1. Max 5 characters TOTAL (including minus and comma)
+    2. Only one '-' allowed and only at start (remove if found elsewhere)
+    3. Only one ',' allowed (not at start/end)
+    4. If we have 5 characters, no more can be added
+    """
+    # Remove any whitespace
+    result = result.strip()
+    
+    # Initialize clean result
+    cleaned = []
+    has_minus = False
+    has_comma = False
+    
+    # Check for invalid comma positions
+    if result.startswith(',') or result.endswith(','):
+        result = result.replace(',', '')
+    
+    # First pass: check for minus at start
+    if result.startswith('-'):
+        has_minus = True
+        cleaned.append('-')
+        result = result[1:]
+    
+    # Remove any other minus signs
+    result = result.replace('-', '')
+    
+    # Process each character
+    for char in result:
+        # Stop if we have 5 characters total
+        if len(cleaned) >= 5:
+            break
+            
+        if char.isdigit():
+            cleaned.append(char)
+        elif char == ',' and not has_comma and len(cleaned) < 4:  # Need room for at least one more digit
+            has_comma = True
+            cleaned.append(char)
+    
+    # Join the cleaned result
+    cleaned_result = ''.join(cleaned)
+    
+    # Pad with zeros if needed
+    while len(cleaned_result) < 5:
+        if cleaned_result.startswith('-'):
+            # Insert zero after minus sign
+            cleaned_result = '-' + '0' + cleaned_result[1:]
+        else:
+            # Add zero at start
+            cleaned_result = '0' + cleaned_result
+    
+    return cleaned_result
+
 def extract_and_predict(model, image_path, device):
     """Extract digits using connected components and predict each digit"""
     img = cv2.imread(image_path)
@@ -140,6 +194,9 @@ def extract_and_predict(model, image_path, device):
         except Exception as e:
             print(f"Error processing component {i}: {str(e)}")
             continue
+    
+    # Clean the prediction according to rules
+    result = clean_prediction(result)
     
     # Save debug images
     debug_dir = "debug_predictions"
