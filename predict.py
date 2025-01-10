@@ -112,7 +112,8 @@ def extract_and_predict(model, image_path, device):
     
     # Filter and sort components
     valid_components = []
-    min_height = height // 3  # Same as digit_extractor
+    comma_components = []  # Store potential comma components
+    min_height = height // 3
     expected_width = width // 10
     
     for i in range(1, num_labels):
@@ -128,41 +129,40 @@ def extract_and_predict(model, image_path, device):
         avg_intensity = np.mean(roi)
         fill_ratio = area / (w * h)
         
+        # Skip components that touch the left or right edges
+        if x <= 2 or (x + w) >= (width - 2):
+            continue
+            
+        # Skip very thin vertical lines (likely grid lines)
+        if w <= 3 and h > height * 0.5:
+            continue
+        
         # Use size to determine component type
         if h >= min_height * 1.3:  # Tall enough to be a digit
-            if w <= expected_width * 0.4:  # Very thin - must be '1'
+            if w <= expected_width * 0.4 and not (x <= 5 or x >= width-5):  # Very thin - must be '1'
                 component_type = 'one'
+                valid_components.append((x, y, w, h, area, component_type))
             else:  # Normal digit
                 component_type = 'digit'
+                valid_components.append((x, y, w, h, area, component_type))
         else:  # Small component
             if w > expected_width/2:  # Wide enough to be dash
                 component_type = 'dash'
-            else:  # Must be comma
-                component_type = 'comma'
-        
-        # Only add if component is large enough
-        if area > 50 and avg_intensity < 200:
-            valid_components.append((x, y, w, h, component_type))
-            
-            # Draw boxes with different colors based on type
-            if component_type == 'one':
-                color = (255, 255, 0)  # Cyan for '1'
-            elif component_type == 'digit':
-                color = (0, 255, 0)    # Green for other digits
-            elif component_type == 'dash':
-                color = (255, 0, 0)    # Blue for dash
-            else:
-                color = (0, 0, 255)    # Red for comma
-                
-            cv2.rectangle(debug_img, (x, y), (x+w, y+h), color, 2)
-            cv2.rectangle(debug_binary, (x, y), (x+w, y+h), color, 2)
+                valid_components.append((x, y, w, h, area, component_type))
+            else:  # Potential comma
+                comma_components.append((x, y, w, h, area, 'comma'))
     
-    # Sort components left to right
+    # If we have comma candidates, select the one with largest area
+    if comma_components:
+        largest_comma = max(comma_components, key=lambda x: x[4])  # x[4] is area
+        valid_components.append(largest_comma)
+    
+    # Sort all components left to right
     valid_components.sort(key=lambda x: x[0])
     
     # Process components
     result = ""
-    for i, (x, y, w, h, comp_type) in enumerate(valid_components):
+    for i, (x, y, w, h, area, comp_type) in enumerate(valid_components):
         try:
             if comp_type == 'dash':
                 result += '-'

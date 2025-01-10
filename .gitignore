@@ -5,3 +5,4 @@ __pycache__/
 train/
 image_cutter.py
 best_model.pth
+test_images/
