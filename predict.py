@@ -32,7 +32,7 @@ def clean_prediction(result):
     1. Max 5 characters TOTAL (including minus and comma)
     2. Only one '-' allowed and only at start (remove if found elsewhere)
     3. Only one ',' allowed (not at start/end)
-    4. If we have 5 characters, no more can be added
+    4. If we have 5 digits, prioritize digits over comma
     """
     # Remove any whitespace
     result = result.strip()
@@ -41,6 +41,7 @@ def clean_prediction(result):
     cleaned = []
     has_minus = False
     has_comma = False
+    digit_count = 0
     
     # Check for invalid comma positions
     if result.startswith(',') or result.endswith(','):
@@ -55,7 +56,15 @@ def clean_prediction(result):
     # Remove any other minus signs
     result = result.replace('-', '')
     
-    # Process each character
+    # Count digits first
+    digits_only = [c for c in result if c.isdigit()]
+    
+    # If we have 5 or more digits, use only digits
+    if len(digits_only) >= 5:
+        cleaned_result = (''.join(cleaned) if has_minus else '') + ''.join(digits_only[:5])
+        return cleaned_result
+    
+    # Otherwise process normally
     for char in result:
         # Stop if we have 5 characters total
         if len(cleaned) >= 5:
