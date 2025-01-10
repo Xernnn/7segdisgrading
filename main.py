@@ -13,8 +13,8 @@ def normalize_image(img, target_width=793):
 
 def calculate_row_height(row_number):
     """Calculate y-coordinate for a given row"""
-    base_y = 75  # Starting y position
-    row_height = 71  # Row spacing - this controls the gap between rows
+    base_y = 58  # Starting y position
+    row_height = 68  # Row spacing - this controls the gap between rows
     return int(row_height * row_number + base_y)
 
 def load_correct_answers(json_path="results.json"):
@@ -52,9 +52,9 @@ def cut_image(input_path, output_dir="cropped_images", target_size=(224, 224)):
     
     # Define the base widths and x-positions for each column (adjusted for better accuracy)
     columns = [
-        (37, 230),    # Slightly wider first column, moved left
-        (275, 235),   # Second column unchanged
-        (520, 245)    # Slightly wider third column
+        (25, 230),    # First column
+        (275, 235),   # Second column
+        (520, 245)    # Third column
     ]
     
     cut_paths = []  # Store paths of cropped images
@@ -131,7 +131,7 @@ def process_image(image_path):
     
     # Define column positions for recoloring rectangles
     columns = [
-        (37, 230),    # First column
+        (25, 230),    # First column
         (275, 235),   # Second column
         (520, 245)    # Third column
     ]
@@ -154,7 +154,9 @@ def process_image(image_path):
             
             # Check if answer is correct
             correct_answer = correct_answers.get(question_num, "")
-            if result == correct_answer:
+            if not correct_answer:  # No answer in results.json
+                color = (255, 0, 0)  # Blue for no answer found
+            elif result == correct_answer:
                 color = (0, 255, 0)  # Green for correct
             else:
                 color = (0, 0, 255)  # Red for wrong
@@ -162,9 +164,10 @@ def process_image(image_path):
             # Draw colored rectangle
             cv2.rectangle(debug_img, (x, y), (x+w, y+h), color, 2)
             
-            # Add correct answer above the rectangle
-            cv2.putText(debug_img, f"{correct_answer}", (x+70, y-7), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)  # Black text
+            # Add correct answer above the rectangle (only if answer exists)
+            if correct_answer:
+                cv2.putText(debug_img, f"{correct_answer}", (x+70, y-7), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)  # Black text
             
         else:
             print(f"Skipping cut {question_num} - no digits detected")
