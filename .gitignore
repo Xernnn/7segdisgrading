@@ -4,3 +4,4 @@ img/
 __pycache__/
 train/
 image_cutter.py
+best_model.pth

@@ -17,7 +17,22 @@ def calculate_row_height(row_number):
     row_height = 71  # Row spacing - this controls the gap between rows
     return int(row_height * row_number + base_y)
 
+def load_correct_answers(json_path="results.json"):
+    """Load correct answers from results.json"""
+    import json
+    try:
+        with open(json_path, 'r') as f:
+            answers = json.load(f)
+        # Convert to dictionary for easier lookup
+        return {item["question"]: item["answer"] for item in answers}
+    except Exception as e:
+        print(f"Error loading results.json: {str(e)}")
+        return {}
+
 def cut_image(input_path, output_dir="cropped_images", target_size=(224, 224)):
+    # Load correct answers
+    correct_answers = load_correct_answers()
+    
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
@@ -81,26 +96,24 @@ def cut_image(input_path, output_dir="cropped_images", target_size=(224, 224)):
                 valid_questions.append(question_num)
                 print(f"Saved cut {question_num} to {output_path}")
                 
-                # Draw rectangle on original image to verify cuts
-                cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                # Add question number to debug image
-                cv2.putText(img, str(question_num), (x, y-5), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                # Draw rectangle on original image
+                # Default color is white before prediction
+                cv2.rectangle(img, (x, y), (x+w, y+h), (255, 255, 255), 2)
+                # Remove question number drawing
                 
             except Exception as e:
                 print(f"Error processing cut {question_num}: {str(e)}")
                 continue
     
-    # Save debug image with rectangles
-    cv2.imwrite(os.path.join(output_dir, "debug_cuts.png"), img)
-    print("\nAll cuts completed. Check the 'cropped_images' folder.")
-    
-    return cut_paths, valid_questions
+    return cut_paths, valid_questions, img  # Return img for later coloring
 
 def process_image(image_path):
     # Cut the image
     print(f"\nProcessing: {image_path}")
-    cut_paths, valid_questions = cut_image(image_path)
+    cut_paths, valid_questions, debug_img = cut_image(image_path)
+    
+    # Load correct answers
+    correct_answers = load_correct_answers()
     
     # Set up model for prediction
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -115,6 +128,14 @@ def process_image(image_path):
     # Process each cut
     print("\nPredicting numbers for each cut:")
     results = []
+    
+    # Define column positions for recoloring rectangles
+    columns = [
+        (37, 230),    # First column
+        (275, 235),   # Second column
+        (520, 245)    # Third column
+    ]
+    
     for cut_path, question_num in zip(cut_paths, valid_questions):
         result = extract_and_predict(model, cut_path, device)
         if result.strip():  # Only add non-blank results
@@ -123,8 +144,33 @@ def process_image(image_path):
                 "answer": result
             })
             print(f"Cut {question_num}: {result}")
+            
+            # Color the rectangle based on correctness
+            row = (question_num - 1) // 3
+            col = (question_num - 1) % 3
+            y = calculate_row_height(row)
+            x, w = columns[col]
+            h = 45
+            
+            # Check if answer is correct
+            correct_answer = correct_answers.get(question_num, "")
+            if result == correct_answer:
+                color = (0, 255, 0)  # Green for correct
+            else:
+                color = (0, 0, 255)  # Red for wrong
+                
+            # Draw colored rectangle
+            cv2.rectangle(debug_img, (x, y), (x+w, y+h), color, 2)
+            
+            # Add correct answer above the rectangle
+            cv2.putText(debug_img, f"{correct_answer}", (x+70, y-7), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)  # Black text
+            
         else:
             print(f"Skipping cut {question_num} - no digits detected")
+    
+    # Save final image outside cropped_images folder
+    cv2.imwrite("final.png", debug_img)
     
     # Save results to JSON file
     import json
