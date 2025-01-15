@@ -3,6 +3,7 @@ import os
 from predict import extract_and_predict
 import torch
 from train import create_model
+import numpy as np
 
 def normalize_image(img, target_width=793):
     """Normalize image width to 793px while maintaining aspect ratio"""
@@ -17,17 +18,19 @@ def calculate_row_height(row_number):
     row_height = 68  # Row spacing - this controls the gap between rows
     return int(row_height * row_number + base_y)
 
-def load_correct_answers(json_path="results.json"):
-    """Load correct answers from results.json"""
+def load_config(json_path="results.json"):
+    """Load coordinates and answers from results.json"""
     import json
     try:
         with open(json_path, 'r') as f:
-            answers = json.load(f)
-        # Convert to dictionary for easier lookup
-        return {item["question"]: item["answer"] for item in answers}
+            data = json.load(f)
+        # Get coordinates and answers
+        coordinates = data.get('coordinates', {})
+        answers = {item["question"]: item["answer"] for item in data.get('answers', [])}
+        return coordinates, answers
     except Exception as e:
         print(f"Error loading results.json: {str(e)}")
-        return {}
+        return {}, {}
 
 def cut_image(input_path, output_dir="cropped_images", target_size=(224, 224)):
     # Load correct answers
@@ -197,11 +200,132 @@ def process_image(image_path):
     
     print(f"\nResults saved to {output_filename}")
 
+def extract_answer_section(image_path):
+    """Extract the answer section from full test page using perspective transform"""
+    # Read the image
+    img = cv2.imread(image_path)
+    if img is None:
+        print(f"Could not read image: {image_path}")
+        return None
+        
+    # Load coordinates from results.json
+    coordinates, _ = load_config()
+    if not coordinates:
+        print("Failed to load coordinates from results.json")
+        return None
+        
+    # Define source points from coordinates
+    src_points = np.float32([
+        coordinates['top_left'],
+        coordinates['top_right'],
+        coordinates['bottom_right'],
+        coordinates['bottom_left']
+    ])
+    
+    # Define destination points (rectangle)
+    width = int(src_points[1][0] - src_points[0][0])  # Use actual width from points
+    height = int(src_points[2][1] - src_points[1][1]) # Use actual height from points
+    
+    dst_points = np.float32([
+        [0, 0],
+        [width, 0],
+        [width, height],
+        [0, height]
+    ])
+    
+    # Calculate perspective transform matrix
+    matrix = cv2.getPerspectiveTransform(src_points, dst_points)
+    
+    # Apply perspective transform
+    answer_section = cv2.warpPerspective(img, matrix, (width, height))
+    
+    # Save the extracted section
+    output_path = "extracted_section.png"
+    cv2.imwrite(output_path, answer_section)
+    
+    return output_path
+
+def process_full_page(image_path):
+    """Process full test page"""
+    # First extract the answer section
+    answer_section_path = extract_answer_section(image_path)
+    if answer_section_path is None:
+        print("Failed to extract answer section")
+        return
+        
+    # Process the extracted section as before
+    process_image(answer_section_path)
+    
+    # Load coordinates for drawing
+    coordinates, _ = load_config()
+    if not coordinates:
+        print("Failed to load coordinates for drawing")
+        return
+    
+    # Read images
+    original_img = cv2.imread(image_path)
+    final_img = cv2.imread("final.png")
+    
+    if final_img is None:
+        print("Failed to read processed image")
+        return
+    
+    # Create copy of original for drawing
+    result_img = original_img.copy()
+    
+    # Draw the region outline using coordinates from config
+    pts = np.int32([
+        coordinates['top_left'],
+        coordinates['top_right'],
+        coordinates['bottom_right'],
+        coordinates['bottom_left']
+    ])
+    
+    # Draw the region on the full page
+    cv2.polylines(result_img, [pts], True, (0, 255, 0), 2)
+    
+    # Place the processed section back onto the full page
+    # Calculate perspective transform matrix for placing back
+    src_points = np.float32([
+        [0, 0],
+        [final_img.shape[1], 0],
+        [final_img.shape[1], final_img.shape[0]],
+        [0, final_img.shape[0]]
+    ])
+    
+    dst_points = np.float32([
+        [9.43074, 898.9375],    # Top left
+        [949.71454, 898.9093],  # Top right
+        [949.5916, 1194.6383],  # Bottom right
+        [9.491907, 1194.481]    # Bottom left
+    ])
+    
+    matrix = cv2.getPerspectiveTransform(src_points, dst_points)
+    result_section = cv2.warpPerspective(final_img, matrix, (original_img.shape[1], original_img.shape[0]))
+    
+    # Blend the result back into the original image
+    mask = np.zeros(original_img.shape, dtype=np.uint8)
+    cv2.fillPoly(mask, [pts], (255, 255, 255))
+    mask_inv = cv2.bitwise_not(mask)
+    
+    result_img = cv2.bitwise_and(result_img, mask_inv)
+    result_img = cv2.bitwise_or(result_img, result_section)
+    
+    # Save the final full page result
+    cv2.imwrite("full_page_result.png", result_img)
+    print("Full page result saved as full_page_result.png")
+
+def load_correct_answers(json_path="results.json"):
+    """Load correct answers from results.json"""
+    _, answers = load_config(json_path)
+    return answers
+
 def main():
     # Process each image in the current directory
     for filename in os.listdir():
         if filename.endswith(('.png', '.jpg', '.jpeg')):
-            process_image(filename)
+            process_full_page(filename)
+
 
 if __name__ == "__main__":
     main()

@@ -1,10 +1,18 @@
-[
-    {
-        "question": 1,
-        "answer": "-0,00"
+{
+    "coordinates": {
+        "top_left": [9.43074, 898.9375],
+        "top_right": [949.71454, 898.9093],
+        "bottom_right": [949.5916, 1194.6383],
+        "bottom_left": [9.491907, 1194.481]
     },
-    {
-        "question": 2,
-        "answer": "00000" 
-    }
-]
+    "answers": [
+        {
+            "question": 1,
+            "answer": "-0,00"
+        },
+        {
+            "question": 2,
+            "answer": "10000"
+        }
+    ]
+}
