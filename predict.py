@@ -210,9 +210,7 @@ def extract_and_predict(model, image_path, device):
     # Save debug images
     debug_dir = "debug_predictions"
     os.makedirs(debug_dir, exist_ok=True)
-    cv2.imwrite(os.path.join(debug_dir, f"binary_{os.path.basename(image_path)}"), binary)
     cv2.imwrite(os.path.join(debug_dir, f"prediction_{os.path.basename(image_path)}"), debug_img)
-    cv2.imwrite(os.path.join(debug_dir, f"debug_{os.path.basename(image_path)}"), debug_binary)
     
     return result
 

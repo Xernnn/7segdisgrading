@@ -25,9 +25,18 @@ def load_config(json_path="results.json"):
     try:
         with open(json_path, 'r') as f:
             data = json.load(f)
-        # Get coordinates and answers
-        coordinates = data.get('coordinates', {})
-        answers = {item["question"]: item["answer"] for item in data.get('answers', [])}
+        
+        # Convert coordinates array to expected format
+        coordinates = {
+            'top_left': [float(data['coordinates'][0]['x']), float(data['coordinates'][0]['y'])],
+            'top_right': [float(data['coordinates'][1]['x']), float(data['coordinates'][1]['y'])],
+            'bottom_right': [float(data['coordinates'][2]['x']), float(data['coordinates'][2]['y'])],
+            'bottom_left': [float(data['coordinates'][3]['x']), float(data['coordinates'][3]['y'])]
+        }
+        
+        # Convert quiz_answers to expected format
+        answers = {int(k): v for k, v in data.get('quiz_answers', {}).items()}
+        
         return coordinates, answers
     except Exception as e:
         print(f"Error loading results.json: {str(e)}")
