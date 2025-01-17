@@ -4,6 +4,7 @@ from predict import extract_and_predict
 import torch
 from train import create_model
 import numpy as np
+import sys
 
 def normalize_image(img, target_width=793):
     """Normalize image width to 793px while maintaining aspect ratio"""
@@ -320,12 +321,21 @@ def load_correct_answers(json_path="results.json"):
     _, answers = load_config(json_path)
     return answers
 
-def main():
-    # Process each image in the current directory
-    for filename in os.listdir():
-        if filename.endswith(('.png', '.jpg', '.jpeg')):
-            process_full_page(filename)
-
+def main(image_path):
+    if not os.path.exists(image_path):
+        print(f"Error: Image file '{image_path}' not found")
+        return
+        
+    if not image_path.lower().endswith(('.png', '.jpg', '.jpeg')):
+        print("Error: File must be an image (PNG, JPG, or JPEG)")
+        return
+        
+    # Process the image
+    process_full_page(image_path)
 
 if __name__ == "__main__":
-    main()
+    # When run directly, use command line argument
+    if len(sys.argv) < 2:
+        print("Usage: python main.py <image_path>")
+    else:
+        main(sys.argv[1])
