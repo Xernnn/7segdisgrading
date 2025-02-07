@@ -2,7 +2,7 @@ import cv2
 import os
 from predict import extract_and_predict
 import torch
-from train import create_model
+from train.train.train import create_model
 import numpy as np
 import sys
 
@@ -15,8 +15,8 @@ def normalize_image(img, target_width=793):
 
 def calculate_row_height(row_number):
     """Calculate y-coordinate for a given row"""
-    base_y = 58  # Starting y position
-    row_height = 68  # Row spacing - this controls the gap between rows
+    base_y = 63  # Starting y position
+    row_height = 77  # Row spacing - this controls the gap between rows
     return int(row_height * row_number + base_y)
 
 def load_config(json_path="results.json"):
@@ -60,14 +60,15 @@ def cut_image(input_path, output_dir="cropped_images", target_size=(224, 224)):
     height, width = img.shape[:2]
     
     # Calculate number of possible rows based on image height
+    # print("Test: ", (height - 90) / 80 + 1)
     max_rows = int((height - 85.25) / 77.6167) + 1  # Solve equation for x
     print(f"Image can fit {max_rows} rows")
     
     # Define the base widths and x-positions for each column (adjusted for better accuracy)
     columns = [
         (25, 230),    # First column
-        (275, 235),   # Second column
-        (520, 245)    # Third column
+        (280, 235),   # Second column
+        (530, 245)    # Third column
     ]
     
     cut_paths = []  # Store paths of cropped images
@@ -76,7 +77,7 @@ def cut_image(input_path, output_dir="cropped_images", target_size=(224, 224)):
     # Process each row and column
     for row in range(max_rows):
         y = calculate_row_height(row)
-        h = 45
+        h = 50
         
         # Process each column in the row
         for col, (x, w) in enumerate(columns):
@@ -132,8 +133,12 @@ def process_image(image_path):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
+    # Load model from root directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(script_dir, 'best_model.pth')  # Changed path
+    
     model = create_model()
-    checkpoint = torch.load('best_model.pth', map_location=device)
+    checkpoint = torch.load(model_path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model = model.to(device)
     model.eval()
@@ -145,8 +150,8 @@ def process_image(image_path):
     # Define column positions for recoloring rectangles
     columns = [
         (25, 230),    # First column
-        (275, 235),   # Second column
-        (520, 245)    # Third column
+        (280, 235),   # Second column
+        (530, 245)    # Third column
     ]
     
     for cut_path, question_num in zip(cut_paths, valid_questions):
@@ -163,7 +168,7 @@ def process_image(image_path):
             col = (question_num - 1) % 3
             y = calculate_row_height(row)
             x, w = columns[col]
-            h = 45
+            h = 50
             
             # Check if answer is correct
             correct_answer = correct_answers.get(question_num, "")
@@ -283,18 +288,14 @@ def process_full_page(image_path):
     # Create copy of original for drawing
     result_img = original_img.copy()
     
-    # Draw the region outline using coordinates from config
-    pts = np.int32([
+    # Convert coordinates to the correct format
+    pts = np.float32([
         coordinates['top_left'],
         coordinates['top_right'],
         coordinates['bottom_right'],
         coordinates['bottom_left']
     ])
     
-    # Draw the region on the full page
-    cv2.polylines(result_img, [pts], True, (0, 255, 0), 2)
-    
-    # Place the processed section back onto the full page
     # Calculate perspective transform matrix for placing back
     src_points = np.float32([
         [0, 0],
@@ -303,25 +304,24 @@ def process_full_page(image_path):
         [0, final_img.shape[0]]
     ])
     
-    dst_points = np.float32([
-        [9.43074, 898.9375],    # Top left
-        [949.71454, 898.9093],  # Top right
-        [949.5916, 1194.6383],  # Bottom right
-        [9.491907, 1194.481]    # Bottom left
-    ])
+    # Use the actual coordinates from results.json instead of hardcoded values
+    dst_points = pts
     
     matrix = cv2.getPerspectiveTransform(src_points, dst_points)
     result_section = cv2.warpPerspective(final_img, matrix, (original_img.shape[1], original_img.shape[0]))
     
-    # Blend the result back into the original image
+    # Create mask using the same coordinates
     mask = np.zeros(original_img.shape, dtype=np.uint8)
-    cv2.fillPoly(mask, [pts], (255, 255, 255))
+    cv2.fillPoly(mask, [np.int32(pts)], (255, 255, 255))
     mask_inv = cv2.bitwise_not(mask)
     
+    # Blend the result back
     result_img = cv2.bitwise_and(result_img, mask_inv)
     result_img = cv2.bitwise_or(result_img, result_section)
     
-    # Save the final full page result
+    # Draw outline (optional)
+    cv2.polylines(result_img, [np.int32(pts)], True, (0, 255, 0), 2)
+    
     cv2.imwrite("full_page_result.png", result_img)
     print("Full page result saved as full_page_result.png")
 

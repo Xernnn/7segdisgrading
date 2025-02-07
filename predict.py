@@ -4,28 +4,32 @@ from torchvision import transforms
 from PIL import Image
 import cv2
 import numpy as np
-from train import create_model
+from train.train.train import create_model
 import os
 
 def predict_digit(model, image_path, device):
-    # Preprocessing
+    # Match the exact preprocessing used in training
     transform = transforms.Compose([
-        transforms.Resize((224, 224)),
+        transforms.Resize((32, 32)),
         transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        transforms.Normalize([0.5], [0.5])
     ])
     
     image = Image.open(image_path).convert('RGB')
     image = transform(image).unsqueeze(0)
     image = image.to(device)
     
-    # Prediction
     model.eval()
     with torch.no_grad():
         outputs = model(image)
-        _, predicted = torch.max(outputs, 1)
+        probabilities = torch.softmax(outputs, dim=1)
+        confidence, predicted = torch.max(probabilities, 1)
         
-    return predicted.item()
+        # Only return prediction if confidence is above threshold
+        if confidence.item() > 0.7:
+            return predicted.item()
+        else:
+            return None  # Return None for low confidence predictions
 
 def clean_prediction(result):
     """Clean up prediction based on rules:
@@ -34,6 +38,13 @@ def clean_prediction(result):
     3. Only one ',' allowed (not at start/end)
     4. If we have 5 digits, prioritize digits over comma
     """
+    # Update mapping to match training
+    LABEL_MAP = {
+        0: '0', 1: '1', 2: '2', 3: '3', 4: '4',
+        5: '5', 6: '6', 7: '7', 8: '8', 9: '9',
+        10: '-', 11: ','  # Make sure these match your training labels
+    }
+    
     # Remove any whitespace
     result = result.strip()
     
@@ -91,30 +102,29 @@ def clean_prediction(result):
     return cleaned_result
 
 def extract_and_predict(model, image_path, device):
-    """Extract digits using connected components and predict each digit"""
     img = cv2.imread(image_path)
     if img is None:
         print(f"Could not read image: {image_path}")
         return ""
         
+    # Convert to grayscale and apply thresholding
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    _, binary = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
+    _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    
+    # Apply morphological operations to clean up the image
+    kernel = np.ones((2,2), np.uint8)
+    binary = cv2.dilate(binary, kernel, iterations=1)
+    binary = cv2.erode(binary, kernel, iterations=1)
     
     # Get image dimensions
     height, width = img.shape[:2]
-    
-    # Debug images
-    debug_img = img.copy()
-    debug_binary = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
     
     # Find connected components
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary)
     
     # Filter and sort components
     valid_components = []
-    comma_components = []  # Store potential comma components
-    min_height = height // 3
-    expected_width = width // 10
+    min_height = height // 2.5  # Adjust minimum height threshold
     
     for i in range(1, num_labels):
         x = stats[i, cv2.CC_STAT_LEFT]
@@ -122,96 +132,60 @@ def extract_and_predict(model, image_path, device):
         w = stats[i, cv2.CC_STAT_WIDTH]
         h = stats[i, cv2.CC_STAT_HEIGHT]
         area = stats[i, cv2.CC_STAT_AREA]
-        aspect_ratio = h/w if w > 0 else 0
         
-        # Calculate component properties
-        roi = gray[y:y+h, x:x+w]
-        avg_intensity = np.mean(roi)
-        fill_ratio = area / (w * h)
-        
-        # Skip components that touch the left or right edges
+        # Skip very small components
+        if area < 20:
+            continue
+            
+        # Skip components that touch the edges
         if x <= 2 or (x + w) >= (width - 2):
             continue
             
-        # Skip very thin vertical lines (likely grid lines)
-        if w <= 3 and h > height * 0.5:
-            continue
-        
-        # Use size to determine component type
-        if h >= min_height * 1.3:  # Tall enough to be a digit
-            if w <= expected_width * 0.4 and not (x <= 5 or x >= width-5):  # Very thin - must be '1'
-                component_type = 'one'
-                valid_components.append((x, y, w, h, area, component_type))
+        # Classify component type based on size and shape
+        if h >= min_height:
+            if w < width * 0.1:  # Very thin - likely '1'
+                valid_components.append((x, y, w, h, 'one'))
             else:  # Normal digit
-                component_type = 'digit'
-                valid_components.append((x, y, w, h, area, component_type))
+                valid_components.append((x, y, w, h, 'digit'))
         else:  # Small component
-            if w > expected_width/2:  # Wide enough to be dash
-                component_type = 'dash'
-                valid_components.append((x, y, w, h, area, component_type))
+            if w > width * 0.1:  # Wide enough to be dash
+                valid_components.append((x, y, w, h, 'dash'))
             else:  # Potential comma
-                comma_components.append((x, y, w, h, area, 'comma'))
+                valid_components.append((x, y, w, h, 'comma'))
     
-    # If we have comma candidates, select the one with largest area
-    if comma_components:
-        largest_comma = max(comma_components, key=lambda x: x[4])  # x[4] is area
-        valid_components.append(largest_comma)
-    
-    # Sort all components left to right
+    # Sort components left to right
     valid_components.sort(key=lambda x: x[0])
     
     # Process components
     result = ""
-    for i, (x, y, w, h, area, comp_type) in enumerate(valid_components):
+    for x, y, w, h, comp_type in valid_components:
         try:
             if comp_type == 'dash':
                 result += '-'
-                label = '-'
             elif comp_type == 'comma':
                 result += ','
-                label = ','
-            elif comp_type == 'one':
-                result += '1'
-                label = '1'
-            else:
-                # Process other digits
-                pad = 5
-                x1 = max(0, x - pad)
-                x2 = min(width, x + w + pad)
-                y1 = max(0, y - pad)
-                y2 = min(height, y + h + pad)
+            elif comp_type in ['one', 'digit']:
+                # Extract digit with padding
+                pad = 2
+                roi = gray[max(0, y-pad):min(height, y+h+pad), 
+                          max(0, x-pad):min(width, x+w+pad)]
                 
-                char_img = gray[y1:y2, x1:x2]
-                char_img = cv2.resize(char_img, (28, 28))
+                # Save and predict
+                temp_path = f"temp_digit.png"
+                cv2.imwrite(temp_path, roi)
                 
-                # Save temporary image
-                temp_path = f"temp_digit_{i}.png"
-                cv2.imwrite(temp_path, char_img)
-                
-                # Predict only if not already classified as '1'
                 digit = predict_digit(model, temp_path, device)
-                result += str(digit)
-                label = str(digit)
+                if digit is not None:  # Only add if confidence is high enough
+                    result += str(digit)
                 
-                # Clean up temp file
                 os.remove(temp_path)
-            
-            # Add label to debug image
-            cv2.putText(debug_img, label, (x, y-5), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-            
+                
         except Exception as e:
-            print(f"Error processing component {i}: {str(e)}")
+            print(f"Error processing component: {str(e)}")
             continue
     
-    # Clean the prediction according to rules
+    # Clean the prediction
     result = clean_prediction(result)
-    
-    # Save debug images
-    debug_dir = "debug_predictions"
-    os.makedirs(debug_dir, exist_ok=True)
-    cv2.imwrite(os.path.join(debug_dir, f"prediction_{os.path.basename(image_path)}"), debug_img)
-    
     return result
 
 def main():
