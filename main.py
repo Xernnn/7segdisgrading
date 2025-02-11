@@ -1,8 +1,7 @@
 import cv2
 import os
-from predict import extract_and_predict
+from predict import extract_and_predict, create_model
 import torch
-from train.train.train import create_model
 import numpy as np
 import sys
 
@@ -264,6 +263,7 @@ def process_full_page(image_path):
     """Process full test page"""
     # First extract the answer section
     answer_section_path = extract_answer_section(image_path)
+    print(answer_section_path)
     if answer_section_path is None:
         print("Failed to extract answer section")
         return

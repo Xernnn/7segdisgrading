@@ -1,11 +1,23 @@
 import torch
 import torch.nn as nn
-from torchvision import transforms
+from torchvision import transforms, models
 from PIL import Image
 import cv2
 import numpy as np
-from train.train.train import create_model
 import os
+
+def create_model():
+    """Recreate the same model architecture for loading weights"""
+    model = models.resnet18(pretrained=False)  # Don't need pretrained weights
+    model.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+    num_features = model.fc.in_features
+    model.fc = nn.Sequential(
+        nn.Linear(num_features, 256),
+        nn.ReLU(),
+        nn.Dropout(0.5),
+        nn.Linear(256, 12)  # 12 classes: 0-9, minus, comma
+    )
+    return model
 
 def predict_digit(model, image_path, device):
     # Match the exact preprocessing used in training
